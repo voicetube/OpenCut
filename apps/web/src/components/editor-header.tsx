@@ -31,6 +31,10 @@ import { useTheme } from "next-themes";
 import { usePlaybackStore } from "@/stores/playback-store";
 import { TransitionUpIcon } from "./icons";
 import { PanelPresetSelector } from "./panel-preset-selector";
+import { ExportDialog, type ExportOptions } from "./export-dialog";
+import { renderTimelineVideo } from "@/lib/ffmpeg-utils";
+import { toast } from "sonner";
+import { useMediaStore } from "@/stores/media-store";
 
 export function EditorHeader() {
   const { getTotalDuration } = useTimelineStore();
@@ -168,25 +172,116 @@ export function EditorHeader() {
 }
 
 function ExportButton() {
-  const handleExport = () => {
-    // TODO: Implement export functionality
-    // NOTE: This is already being worked on
-    console.log("Export project");
-    window.open("https://youtube.com/watch?v=dQw4w9WgXcQ", "_blank");
+  const [isExportDialogOpen, setIsExportDialogOpen] = useState(false);
+  const { activeProject } = useProjectStore();
+  const { tracks, getTotalDuration } = useTimelineStore();
+  const { mediaItems } = useMediaStore();
+
+  const handleExport = async (options: ExportOptions) => {
+    try {
+      // Check if timeline has content
+      if (tracks.length === 0 || tracks.every(t => t.elements.length === 0)) {
+        throw new Error("Timeline is empty. Add some content before exporting.");
+      }
+
+      if (options.useBackend) {
+        // Use backend export for better caption support
+        const formData = new FormData();
+        
+        // Add timeline data
+        formData.append("timeline", JSON.stringify({
+          tracks,
+          totalDuration: getTotalDuration(),
+        }));
+        formData.append("options", JSON.stringify(options));
+        formData.append("canvasSize", JSON.stringify(
+          activeProject?.canvasSize || { width: 1920, height: 1080 }
+        ));
+
+        // Add media files
+        for (const track of tracks) {
+          for (const element of track.elements) {
+            if (element.type === "media" && element.mediaId) {
+              const mediaItem = mediaItems.find(m => m.id === element.mediaId);
+              if (mediaItem && mediaItem.file) {
+                formData.append(`media_${element.mediaId}`, mediaItem.file);
+              }
+            }
+          }
+        }
+
+        // Send to backend
+        const response = await fetch("/api/export-video", {
+          method: "POST",
+          body: formData,
+        });
+
+        if (!response.ok) {
+          const error = await response.json();
+          throw new Error(error.error || "Export failed");
+        }
+
+        // Get the video blob
+        const videoBlob = await response.blob();
+
+        // Create download link
+        const url = URL.createObjectURL(videoBlob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `${activeProject?.name || "video"}_export.${options.format}`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        
+        // Clean up
+        setTimeout(() => URL.revokeObjectURL(url), 100);
+      } else {
+        // Use frontend export (faster but limited caption support)
+        const progressHandler = (window as any).ffmpegProgressHandler;
+        
+        const videoBlob = await renderTimelineVideo({
+          ...options,
+          onProgress: progressHandler,
+        });
+
+        // Create download link
+        const url = URL.createObjectURL(videoBlob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `${activeProject?.name || "video"}_export.${options.format}`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        
+        // Clean up
+        setTimeout(() => URL.revokeObjectURL(url), 100);
+      }
+    } catch (error) {
+      console.error("Export failed:", error);
+      throw error; // Re-throw to be handled by the dialog
+    }
   };
 
   return (
-    <button
-      className="flex items-center gap-1.5 bg-[#38BDF8] text-white rounded-md px-[0.1rem] py-[0.1rem] cursor-pointer hover:brightness-95 transition-all duration-200"
-      onClick={handleExport}
-    >
-      <div className="flex items-center gap-1.5 bg-linear-270 from-[#2567EC] to-[#37B6F7] rounded-[0.8rem] px-4 py-1 relative shadow-[0_1px_3px_0px_rgba(0,0,0,0.45)]">
-        <TransitionUpIcon className="z-50" />
-        <span className="text-[0.875rem] z-50">Export</span>
-        <div className="absolute w-full h-full left-0 top-0 bg-linear-to-t from-white/0 to-white/50 z-10 rounded-[0.8rem] flex items-center justify-center">
-          <div className="absolute w-[calc(100%-4px)] h-[calc(100%-4px)] top-[0.12rem] bg-linear-270 from-[#2567EC] to-[#37B6F7] z-50 rounded-lg"></div>
+    <>
+      <button
+        className="flex items-center gap-1.5 bg-[#38BDF8] text-white rounded-md px-[0.1rem] py-[0.1rem] cursor-pointer hover:brightness-95 transition-all duration-200"
+        onClick={() => setIsExportDialogOpen(true)}
+      >
+        <div className="flex items-center gap-1.5 bg-linear-270 from-[#2567EC] to-[#37B6F7] rounded-[0.8rem] px-4 py-1 relative shadow-[0_1px_3px_0px_rgba(0,0,0,0.45)]">
+          <TransitionUpIcon className="z-50" />
+          <span className="text-[0.875rem] z-50">Export</span>
+          <div className="absolute w-full h-full left-0 top-0 bg-linear-to-t from-white/0 to-white/50 z-10 rounded-[0.8rem] flex items-center justify-center">
+            <div className="absolute w-[calc(100%-4px)] h-[calc(100%-4px)] top-[0.12rem] bg-linear-270 from-[#2567EC] to-[#37B6F7] z-50 rounded-lg"></div>
+          </div>
         </div>
-      </div>
-    </button>
+      </button>
+      
+      <ExportDialog
+        isOpen={isExportDialogOpen}
+        onOpenChange={setIsExportDialogOpen}
+        onExport={handleExport}
+      />
+    </>
   );
 }

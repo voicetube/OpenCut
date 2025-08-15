@@ -90,6 +90,18 @@ const apiResponseSchema = z.object({
 
 export async function GET(request: NextRequest) {
   try {
+    // Check if Freesound API is configured
+    if (!env.FREESOUND_API_KEY || !env.FREESOUND_CLIENT_ID || 
+        env.FREESOUND_API_KEY === '...' || env.FREESOUND_CLIENT_ID === '...') {
+      return NextResponse.json(
+        { 
+          error: "Sound effects not available", 
+          message: "Freesound API not configured. Set FREESOUND_CLIENT_ID and FREESOUND_API_KEY in your environment." 
+        },
+        { status: 503 }
+      );
+    }
+
     const ip = request.headers.get("x-forwarded-for") ?? "anonymous";
     const { success } = await baseRateLimit.limit(ip);
 

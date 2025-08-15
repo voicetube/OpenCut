@@ -105,9 +105,9 @@ export function Captions() {
         throw new Error(error.message || "Transcription failed");
       }
 
-      const { text, segments } = await transcriptionResponse.json();
+      const { segments, language, duration } = await transcriptionResponse.json();
 
-      console.log("Transcription completed:", { text, segments });
+      console.log("Transcription completed:", { segments, language, duration });
 
       const shortCaptions: Array<{
         text: string;
@@ -118,7 +118,7 @@ export function Captions() {
       let globalEndTime = 0; // Track the end time of the last caption globally
 
       segments.forEach((segment: any) => {
-        const words = segment.text.trim().split(/\s+/);
+        const words = (segment.word || segment.text || "").trim().split(/\s+/);
         const segmentDuration = segment.end - segment.start;
         const wordsPerSecond = words.length / segmentDuration;
 

@@ -1,15 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { AwsClient } from "aws4fetch";
 import { env } from "@/env";
 import { baseRateLimit } from "@/lib/rate-limit";
 import { isTranscriptionConfigured } from "@/lib/transcription-utils";
 
 const transcribeRequestSchema = z.object({
-  audioUrl: z.string().url(),
+  filename: z.string(),
   language: z
     .enum([
       "auto",
       "en",
+      "us", // Map to English
       "zh",
       "es",
       "fr",
@@ -36,6 +38,8 @@ const transcribeRequestSchema = z.object({
     ])
     .default("auto"),
   echoingMode: z.boolean().default(false),
+  decryptionKey: z.string().optional(),
+  iv: z.string().optional(),
 });
 
 const apiResponseSchema = z.object({
@@ -398,19 +402,69 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { audioUrl, language, echoingMode } = validationResult.data;
+    const { filename, language, echoingMode, decryptionKey, iv } = validationResult.data;
 
-    // Download audio file from R2
-    const audioResponse = await fetch(audioUrl);
+    // Initialize R2 client for authenticated requests
+    const client = new AwsClient({
+      accessKeyId: env.R2_ACCESS_KEY_ID,
+      secretAccessKey: env.R2_SECRET_ACCESS_KEY,
+    });
+
+    // Construct R2 URL from filename
+    const audioUrl = `https://${env.R2_BUCKET_NAME}.${env.CLOUDFLARE_ACCOUNT_ID}.r2.cloudflarestorage.com/${filename}`;
+
+    // Download audio file from R2 with authentication
+    const getRequest = new Request(audioUrl, { method: "GET" });
+    const signedRequest = await client.sign(getRequest);
+    const audioResponse = await fetch(signedRequest);
     if (!audioResponse.ok) {
+      console.error(`Failed to download from R2: ${audioResponse.status} ${audioResponse.statusText}`);
       throw new Error(
         `Failed to download audio file: ${audioResponse.statusText}`
       );
     }
 
-    const audioBuffer = await audioResponse.arrayBuffer();
-    const audioFile = new File([audioBuffer], "audio.wav", {
-      type: "audio/wav",
+    let audioBuffer = await audioResponse.arrayBuffer();
+    console.log(`Downloaded audio file: ${audioBuffer.byteLength} bytes, Content-Type: ${audioResponse.headers.get('content-type')}`);
+    
+    // Decrypt the file if decryption parameters are provided
+    if (decryptionKey && iv) {
+      try {
+        const key = await crypto.subtle.importKey(
+          'raw',
+          Buffer.from(decryptionKey, 'base64'),
+          { name: 'AES-GCM' },
+          false,
+          ['decrypt']
+        );
+        
+        const decrypted = await crypto.subtle.decrypt(
+          {
+            name: 'AES-GCM',
+            iv: Buffer.from(iv, 'base64')
+          },
+          key,
+          audioBuffer
+        );
+        
+        audioBuffer = decrypted;
+        console.log(`Decrypted audio file: ${audioBuffer.byteLength} bytes`);
+      } catch (error) {
+        console.error('Decryption failed:', error);
+        throw new Error('Failed to decrypt audio file');
+      }
+    }
+    
+    // Use the original file extension for proper MIME type
+    const fileExtension = filename.split('.').pop()?.toLowerCase() || 'wav';
+    const mimeType = fileExtension === 'mp3' ? 'audio/mpeg' : 
+                     fileExtension === 'm4a' ? 'audio/mp4' :
+                     fileExtension === 'flac' ? 'audio/flac' :
+                     fileExtension === 'ogg' ? 'audio/ogg' :
+                     'audio/wav';
+    
+    const audioFile = new File([audioBuffer], `audio.${fileExtension}`, {
+      type: mimeType,
     });
 
     // Prepare transcription parameters for OpenAI
@@ -422,7 +476,9 @@ export async function POST(request: NextRequest) {
     formData.append("timestamp_granularities", "word");
 
     if (language !== "auto") {
-      formData.append("language", language);
+      // Map "us" to "en" for OpenAI API
+      const openaiLanguage = language === "us" ? "en" : language;
+      formData.append("language", openaiLanguage);
     }
 
     // Call OpenAI Whisper API

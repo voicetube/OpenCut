@@ -85,7 +85,14 @@ export async function POST(request: NextRequest) {
 
     url.searchParams.set("X-Amz-Expires", "3600"); // 1 hour expiry
 
-    const signed = await client.sign(new Request(url, { method: "PUT" }), {
+    const putRequest = new Request(url, { 
+      method: "PUT",
+      headers: {
+        "Content-Type": "audio/wav"
+      }
+    });
+
+    const signed = await client.sign(putRequest, {
       aws: { signQuery: true },
     });
 
