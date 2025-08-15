@@ -7,7 +7,7 @@ export function isTranscriptionConfigured() {
   if (!env.R2_ACCESS_KEY_ID) missingVars.push("R2_ACCESS_KEY_ID");
   if (!env.R2_SECRET_ACCESS_KEY) missingVars.push("R2_SECRET_ACCESS_KEY");
   if (!env.R2_BUCKET_NAME) missingVars.push("R2_BUCKET_NAME");
-  if (!env.MODAL_TRANSCRIPTION_URL) missingVars.push("MODAL_TRANSCRIPTION_URL");
+  if (!env.OPENAI_API_KEY) missingVars.push("OPENAI_API_KEY");
 
   return { configured: missingVars.length === 0, missingVars };
 }

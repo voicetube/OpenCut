@@ -22,8 +22,8 @@ export const env = createEnv({
     R2_ACCESS_KEY_ID: z.string(),
     R2_SECRET_ACCESS_KEY: z.string(),
     R2_BUCKET_NAME: z.string(),
-    // Modal transcription
-    MODAL_TRANSCRIPTION_URL: z.string(),
+    // OpenAI API key for Whisper transcription
+    OPENAI_API_KEY: z.string(),
   },
   client: {},
   runtimeEnv: {
@@ -39,7 +39,7 @@ export const env = createEnv({
     R2_ACCESS_KEY_ID: process.env.R2_ACCESS_KEY_ID,
     R2_SECRET_ACCESS_KEY: process.env.R2_SECRET_ACCESS_KEY,
     R2_BUCKET_NAME: process.env.R2_BUCKET_NAME,
-    // Modal transcription
-    MODAL_TRANSCRIPTION_URL: process.env.MODAL_TRANSCRIPTION_URL,
+    // OpenAI API key for Whisper transcription
+    OPENAI_API_KEY: process.env.OPENAI_API_KEY,
   },
 });
