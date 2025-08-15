@@ -61,9 +61,30 @@ function getOutputDimensions(resolution: string, canvasSize: { width: number; he
   }
 }
 
-// Generate ASS subtitle format
+// Helper function to convert hex color to ASS color format (&HBBGGRR)
+function hexToASSColor(hex: string): string {
+  if (!hex || hex === "transparent") return "&H00000000";
+  
+  // Remove # if present
+  hex = hex.replace("#", "");
+  
+  // Handle 3-digit hex
+  if (hex.length === 3) {
+    hex = hex.split("").map(char => char + char).join("");
+  }
+  
+  // Extract RGB components
+  const r = hex.substring(0, 2);
+  const g = hex.substring(2, 4);
+  const b = hex.substring(4, 6);
+  
+  // Convert to ASS format (BGR order with alpha)
+  return `&H00${b}${g}${r}`;
+}
+
+// Generate ASS subtitle format with individual element styles
 function generateASSSubtitles(textTracks: any[], width: number, height: number): string {
-  // ASS header with style definitions
+  // ASS header
   const assHeader = `[Script Info]
 Title: OpenCut Subtitles
 ScriptType: v4.00+
@@ -72,13 +93,20 @@ PlayResY: ${height}
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,Arial,48,&H00FFFFFF,&H00FFFFFF,&H00000000,&H80000000,0,0,0,0,100,100,0,0,1,2,1,2,10,10,50,1
-
-[Events]
-Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 `;
 
+  const styles: string[] = [];
   const events: string[] = [];
+  const styleMap = new Map<string, string>();
+  
+  // Convert time to ASS format (h:mm:ss.cc)
+  const formatASSTime = (seconds: number): string => {
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const secs = Math.floor(seconds % 60);
+    const centisecs = Math.floor((seconds % 1) * 100);
+    return `${hours}:${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')}.${String(centisecs).padStart(2, '0')}`;
+  };
   
   for (const track of textTracks) {
     for (const element of track.elements) {
@@ -86,26 +114,63 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         const startTime = element.startTime || 0;
         const endTime = startTime + (element.duration || 1);
         
-        // Convert time to ASS format (h:mm:ss.cc)
-        const formatASSTime = (seconds: number): string => {
-          const hours = Math.floor(seconds / 3600);
-          const minutes = Math.floor((seconds % 3600) / 60);
-          const secs = Math.floor(seconds % 60);
-          const centisecs = Math.floor((seconds % 1) * 100);
-          return `${hours}:${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')}.${String(centisecs).padStart(2, '0')}`;
-        };
+        // Create a unique style for this element based on its properties
+        const styleKey = `${element.fontFamily || 'Arial'}-${element.fontSize || 48}-${element.color || '#ffffff'}-${element.backgroundColor || 'transparent'}-${element.fontWeight || 'normal'}-${element.fontStyle || 'normal'}-${element.textDecoration || 'none'}-${Math.round((element.opacity || 1) * 100)}`;
+        
+        let styleName = styleMap.get(styleKey);
+        
+        if (!styleName) {
+          // Create new style
+          styleName = `Style${styleMap.size}`;
+          styleMap.set(styleKey, styleName);
+          
+          const fontName = element.fontFamily || 'Arial';
+          const fontSize = Math.round(element.fontSize || 48);
+          const primaryColor = hexToASSColor(element.color || '#ffffff');
+          const backColor = element.backgroundColor && element.backgroundColor !== 'transparent' 
+            ? hexToASSColor(element.backgroundColor) 
+            : '&H80000000'; // Semi-transparent black default
+          
+          // Handle text styling
+          const bold = (element.fontWeight === 'bold') ? 1 : 0;
+          const italic = (element.fontStyle === 'italic') ? 1 : 0;
+          const underline = (element.textDecoration === 'underline') ? 1 : 0;
+          const strikeout = (element.textDecoration === 'line-through') ? 1 : 0;
+          
+          // Handle opacity (0-255 range for ASS alpha channel)
+          const opacity = Math.round((element.opacity || 1) * 255);
+          const alphaHex = opacity.toString(16).padStart(2, '0').toUpperCase();
+          const primaryColorWithAlpha = primaryColor.replace('&H00', `&H${(255 - opacity).toString(16).padStart(2, '0').toUpperCase()}`);
+          
+          // Create style definition
+          // Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+          styles.push(`Style: ${styleName},${fontName},${fontSize},${primaryColorWithAlpha},${primaryColor},&H00000000,${backColor},${bold},${italic},${underline},${strikeout},100,100,0,0,1,2,1,2,10,10,50,1`);
+        }
         
         // Clean text for ASS format
-        const text = element.content.replace(/\n/g, "\\N");
+        const text = element.content.replace(/\n/g, "\\N").replace(/\{/g, "\\{").replace(/\}/g, "\\}");
+        
+        // Handle positioning if element has custom x/y coordinates
+        let positionOverride = "";
+        if (element.x !== undefined || element.y !== undefined) {
+          const x = Math.round((width / 2) + (element.x || 0));
+          const y = Math.round((height / 2) + (element.y || 0));
+          positionOverride = `{\\pos(${x},${y})}`;
+        }
         
         events.push(
-          `Dialogue: 0,${formatASSTime(startTime)},${formatASSTime(endTime)},Default,,0,0,0,,${text}`
+          `Dialogue: 0,${formatASSTime(startTime)},${formatASSTime(endTime)},${styleName},,0,0,0,,${positionOverride}${text}`
         );
       }
     }
   }
   
-  return assHeader + events.join("\n");
+  // Add default style if no custom styles were created
+  if (styles.length === 0) {
+    styles.push('Style: Default,Arial,48,&H00FFFFFF,&H00FFFFFF,&H00000000,&H80000000,0,0,0,0,100,100,0,0,1,2,1,2,10,10,50,1');
+  }
+  
+  return assHeader + styles.join("\n") + "\n\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n" + events.join("\n");
 }
 
 export async function POST(request: NextRequest) {

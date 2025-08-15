@@ -17,6 +17,7 @@ import { useProjectStore } from "@/stores/project-store";
 import { EditorProvider } from "@/components/editor-provider";
 import { usePlaybackControls } from "@/hooks/use-playback-controls";
 import { Onboarding } from "@/components/onboarding";
+import { CaptionDebug } from "@/components/debug/caption-debug";
 
 export default function Editor() {
   const {
@@ -453,6 +454,7 @@ export default function Editor() {
           )}
         </div>
         <Onboarding />
+        <CaptionDebug />
       </div>
     </EditorProvider>
   );

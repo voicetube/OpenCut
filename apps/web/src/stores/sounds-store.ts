@@ -122,13 +122,21 @@ export const useSoundsStore = create<SoundsStore>((set, get) => ({
   setTotalCount: (count) => set({ totalCount: count }),
   setLoadingMore: (loading) => set({ isLoadingMore: loading }),
   appendSearchResults: (results) =>
-    set((state) => ({
-      searchResults: [...state.searchResults, ...results],
-    })),
+    set((state) => {
+      const existingIds = new Set(state.searchResults.map(s => s.id));
+      const newResults = results.filter(r => !existingIds.has(r.id));
+      return {
+        searchResults: [...state.searchResults, ...newResults],
+      };
+    }),
   appendTopSounds: (results) =>
-    set((state) => ({
-      topSoundEffects: [...state.topSoundEffects, ...results],
-    })),
+    set((state) => {
+      const existingIds = new Set(state.topSoundEffects.map(s => s.id));
+      const newResults = results.filter(r => !existingIds.has(r.id));
+      return {
+        topSoundEffects: [...state.topSoundEffects, ...newResults],
+      };
+    }),
   resetPagination: () =>
     set({
       currentPage: 1,

@@ -212,7 +212,7 @@ function SoundEffectsView() {
             )}
             {displayedSounds.map((sound) => (
               <AudioItem
-                key={sound.id}
+                key={`search-${sound.id}`}
                 sound={sound}
                 isPlaying={playingId === sound.id}
                 onPlay={() => playSound(sound)}
@@ -398,7 +398,7 @@ function SavedSoundsView() {
           <div className="flex flex-col gap-4">
             {savedSounds.map((sound) => (
               <AudioItem
-                key={sound.id}
+                key={`saved-${sound.id}`}
                 sound={convertToSoundEffect(sound)}
                 isPlaying={playingId === sound.id}
                 onPlay={() => playSound(sound)}
